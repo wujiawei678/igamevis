@@ -1204,8 +1204,48 @@ void igQtMainWindow::initAllFilters() {
             sa->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         }
     };
+    //QMenu* mesh_processing = ui->menu_filters->addMenu(QStringLiteral("单元几何校验 (Validate Cells)"));
+
+    connect(ui->menu_filters->addAction(QStringLiteral("单元几何校验 (Validate Cells)")), &QAction::triggered, this,
+            [&](bool checked) {
+                auto* scene = rendererWidget->GetScene();
+                if (scene == nullptr || scene->GetCurrentModel() == nullptr) {
+                    showDarkFramelessMessage(QStringLiteral("无可用模型"),
+                                             QStringLiteral("请先加载并选择一个网格模型。"));
+                    return;
+                }
+                auto model = scene->GetCurrentModel();
+                auto obj = model->GetDataObject();
+                if (obj == nullptr) {
+                    showDarkFramelessMessage(QStringLiteral("无可用数据"),
+                                             QStringLiteral("当前模型没有可用的网格数据。"));
+                    return;
+                }
+                ValidateCellsFilter::Pointer filter = ValidateCellsFilter::New();
+                filter->SetInput(obj);
+                filter->SetModel(model);
+                if (!filter->Execute()) {
+                    showDarkFramelessMessage(QStringLiteral("校验失败"),
+                                             QStringLiteral("该数据类型不支持单元几何校验。"));
+                    return;
+                }
+                const auto& invalidIds = filter->GetInvalidCellIds();
+                if (invalidIds.empty()) {
+                    showDarkFramelessMessage(QStringLiteral("校验通过"),
+                                             QStringLiteral("未发现无效单元，当前网格几何体有效。"), true);
+                    return;
+                }
+                modelTreeWidget->addDataObjectToModelTree(obj, Algorithm);
+                rendererWidget->update();
+                showDarkFramelessMessage(QStringLiteral("单元几何校验"),
+                                         QString(QStringLiteral("发现 %1 个无效单元，已高亮显示。"))
+                                                 .arg(static_cast<int>(invalidIds.size())),
+                                         false);
+            });
 
     QMenu* mesh_processing = ui->menu_filters->addMenu(QStringLiteral("数据处理 (Data Processing)"));
+    
+
     connect(mesh_processing->addAction(QStringLiteral("表面网格简化 (Surface Simplification)")), &QAction::triggered, this, [&](bool checked) {
         if (rendererWidget->GetScene()->GetCurrentModel() == nullptr) return;
 
@@ -2208,6 +2248,9 @@ void igQtMainWindow::initAllDockWidgetConnectWithAction() {
             partFocusDialog->activateWindow();
         });
     }
+
+
+
     connect(ui->widget_ParallelCoordinatesField, &igQtParallelCoordinatesWidget::SIGNAL_RefreshDataClicked, this,
             [&]() {
                 auto model = rendererWidget->GetScene()->GetCurrentModel();
