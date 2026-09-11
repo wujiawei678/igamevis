@@ -5,8 +5,14 @@
 
 - 对每个单元或表面面片计算有效性状态码。
 - 状态码为 0 表示有效，非 0 表示存在问题。
-- 可以获取所有无效单元的 ID 列表。
-- 如果设置了关联的 Model，还可以高亮显示无效单元。
+- 生成独立的 `*_ValidateCells` 输出节点，不修改原输入。
+- 可以获取已检查、有效、无效、未支持单元数量，以及各错误类别对应的单元 ID。
+- Qt 端会显示结果汇总面板，并支持按错误类别或单个单元高亮。
+
+## 支持范围
+- `UnstructuredMesh`：`IG_VERTEX`、`IG_LINE`、`IG_POLY_LINE`、`IG_FACE`、`IG_TRIANGLE`、`IG_QUAD`、`IG_POLYGON`、`IG_TETRA`。
+- `SurfaceMesh`：按面校验三角形、四边形和多边形面。
+- 不支持的单元类型不会被当作“几何无效”，而是单独计入 `GetUnsupportedCellCount()`，状态码为 `0x40`。
 
 ## 状态码说明
 - `0x00`：有效。
@@ -30,18 +36,19 @@ if (obj == nullptr) {
     return;
 }
 
-// 如果需要在渲染窗口中高亮无效单元，请先加入场景并创建 Model。
+// 如果需要在渲染窗口中查看结果，请使用 filter 的独立输出节点。
 iGame::Scene::Pointer scene = iGame::Scene::New();
-scene->AddModel(obj);
-auto model = scene->GetCurrentModel();
 
 auto filter = iGame::ValidateCellsFilter::New();
 filter->SetInput(obj);
-filter->SetModel(model);  // 可选，设置后才会有高亮效果
 
 if (!filter->Execute()) {
     return;
 }
+
+auto output = filter->GetOutput();
+scene->AddModel(output);
+auto model = scene->GetCurrentModel();
 
 int invalidCount = filter->GetInvalidCellCount();
 const auto& invalidIds = filter->GetInvalidCellIds();
@@ -67,15 +74,16 @@ Examples/Filter/MyFilter/TestValidateCellsFilter.cpp
 - 混合单元测试模型：`Examples/Models/iGameValidateCellsFilter_mixed.vtk`
 
 ## 输出说明
-- filter 会修改输入数据对象，为其添加单元属性 `ValidityState`。
-- 每个单元的值对应上述状态码。
-- 无效单元 ID 可以通过 `GetInvalidCellIds()` 获取。
-- 如果设置了 Model，无效单元会被自动选中并高亮。
+- filter 不会修改输入数据对象，而是生成一个独立输出节点，默认名称为 `<输入名称>_ValidateCells`。
+- 输出节点会添加单元属性 `ValidityState`，每个单元的值对应上述状态码。
+- `GetCheckedCellCount()`、`GetValidCellCount()`、`GetInvalidCellCount()`、`GetUnsupportedCellCount()` 可获取汇总数量。
+- `GetCellIdsWithFlag(flag)` 可获取命中某一位标志的单元，用于按错误类别高亮。
+- `GetValidityStateText(state)` 会把位掩码转换为“边相交、非凸”这类可读文本。
 
 ## 注意事项
 - 输入可以是 `UnstructuredMesh` 或 `SurfaceMesh`。
-- 对 `UnstructuredMesh`，当前支持线、三角形、四边形、多边形、四面体等类型；六面体等类型会被标记为不支持。
+- 对 `UnstructuredMesh`，当前支持点、线、折线、三角形、四边形、多边形、四面体；六面体等类型会被标记为不支持。
 - 对 `SurfaceMesh`，每个面都按多边形校验。
-- 如果需要高亮，必须在 `Execute()` 之前调用 `SetModel(model)`。
-- 每次执行会清除并重新写入 `ValidityState` 属性。
+- Qt 端负责把输出节点加入模型树，并由结果面板执行高亮；手动调用时请自行把 `filter->GetOutput()` 加入场景。
+- 每次执行会在输出节点上重新写入 `ValidityState` 属性。
 - 重复点、零面积三角形、自相交多边形等都会使对应单元被标记为无效。
